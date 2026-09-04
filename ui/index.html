@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Desktop Canvas</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="backdropCanvas"></canvas>
+      <canvas id="inkCanvas"></canvas>
+      <div id="notesLayer"></div>
+      <div id="gizmoLayer"></div>
+      
+      <div id="hudContainer"></div>
+
+      <div id="modeIndicator" title="Click to toggle Edit / Wallpaper Mode">
+        <span class="mode-dot" id="modeDot"></span>
+        <span id="modeText">Wallpaper Mode</span>
+      </div>
+
+      <div id="wizardContainer" class="hidden"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

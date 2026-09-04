@@ -1,0 +1,17 @@
+{
+  "name": "desktop-canvas",
+  "version": "0.1.0",
+  "description": "Desktop Canvas - A Dual-Personality Windows Desktop Application",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:windowed": "tauri dev -- -- --windowed",
+    "build": "tauri build",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "ui:dev": "npm run dev --prefix ui",
+    "ui:build": "npm run build --prefix ui"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.2.0"
+  }
+}

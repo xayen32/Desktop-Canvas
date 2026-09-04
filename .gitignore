@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust build artifacts
+target/
+**/target/
+**/*.rs.bk
+
+# Frontend production builds
+dist/
+**/dist/
+
+# Local & private development files
+.local/
+private/
+*.local
+
+# Tauri bundle artifacts
+src-tauri/target/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.Spotlight-V100
+.Trashes
+
+# Logs & Environment
+*.log
+.env
+.env.*
+!.env.example
