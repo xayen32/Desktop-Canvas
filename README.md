@@ -89,6 +89,6 @@ npm run build
 ```
 The finished `.exe` and installer will be generated in `src-tauri/target/release/bundle/`.
 
----
 
-<p align="center">Made with ❤️ by xayen32</p>
+
+
