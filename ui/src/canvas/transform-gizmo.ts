@@ -3,8 +3,8 @@ import { CanvasTransform } from '../types/schema';
 export type HandleType = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate' | 'body' | null;
 
 export interface GizmoCallbacks {
-  onTransformStart?: () => void;
-  onTransformChange: (transform: CanvasTransform) => void;
+  onTransformStart?: (handle?: HandleType) => void;
+  onTransformChange: (transform: CanvasTransform, handle?: HandleType) => void;
   onTransformEnd: () => void;
   onDelete?: () => void;
   onBringForward?: () => void;
@@ -58,7 +58,8 @@ export class TransformGizmo {
     callbacks: GizmoCallbacks,
     isAboveInk: boolean = false,
     showLayerButtons: boolean = true,
-    showTransformHandles: boolean = true
+    showTransformHandles: boolean = true,
+    showRotateOnly: boolean = false
   ): void {
     this.transform = { ...transform };
     this.callbacks = callbacks;
@@ -66,8 +67,27 @@ export class TransformGizmo {
     this.gizmoEl.classList.remove('hidden');
     this.setLayerState(isAboveInk);
     this.showLayerControls(showLayerButtons);
-    this.showTransformHandles(showTransformHandles);
+    if (showRotateOnly) {
+      this.configureHandles({ showResize: false, showRotate: true });
+    } else {
+      this.showTransformHandles(showTransformHandles);
+    }
     this.updatePosition();
+  }
+
+  public configureHandles(options: { showResize?: boolean; showRotate?: boolean }): void {
+    const showResize = options.showResize ?? true;
+    const showRotate = options.showRotate ?? true;
+
+    const resizeHandles = this.gizmoEl.querySelectorAll('.gizmo-handle:not(.handle-rot)');
+    resizeHandles.forEach((el) => {
+      (el as HTMLElement).style.display = showResize ? '' : 'none';
+    });
+
+    const rotElements = this.gizmoEl.querySelectorAll('.handle-rot, .gizmo-rot-stem');
+    rotElements.forEach((el) => {
+      (el as HTMLElement).style.display = showRotate ? '' : 'none';
+    });
   }
 
   public showLayerControls(show: boolean): void {
@@ -122,7 +142,7 @@ export class TransformGizmo {
 
   private bindEvents(): void {
     const onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0 || !this.transform) return;
+      if ((e.button !== 0 && e.button !== 2) || !this.transform) return;
       const target = e.target as HTMLElement;
       let handle = target.dataset.handle as HandleType;
 
@@ -140,7 +160,7 @@ export class TransformGizmo {
         this.initialTransform = { ...this.transform };
         this.gizmoEl.setPointerCapture(e.pointerId);
         if (this.callbacks && this.callbacks.onTransformStart) {
-          this.callbacks.onTransformStart();
+          this.callbacks.onTransformStart(handle);
         }
       }
     };
@@ -152,6 +172,13 @@ export class TransformGizmo {
       const dx = e.clientX - this.dragStart.x;
       const dy = e.clientY - this.dragStart.y;
       const init = this.initialTransform;
+
+      // Base all frame calculations on initialTransform to prevent drift
+      this.transform.x = init.x;
+      this.transform.y = init.y;
+      this.transform.width = init.width;
+      this.transform.height = init.height;
+      this.transform.rotation = init.rotation;
 
       if (this.activeHandle === 'rotate') {
         const cx = init.x + init.width / 2;
@@ -222,7 +249,7 @@ export class TransformGizmo {
 
       this.updatePosition();
       if (this.callbacks) {
-        this.callbacks.onTransformChange(this.transform);
+        this.callbacks.onTransformChange(this.transform, this.activeHandle);
       }
     };
 

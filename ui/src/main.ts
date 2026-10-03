@@ -7,9 +7,10 @@ import { TransformGizmo } from './canvas/transform-gizmo';
 import { FloatingToolbarHUD } from './hud/toolbar';
 import {
   applyWallpaperSnapshot, getDisplayBounds, getSettings,
-  onDisplayBoundsChanged, onModeChanged, onRequestToggleMode, onShowWizard, toggleMode, updateSettings,
+  onDisplayBoundsChanged, onModeChanged, onRequestToggleMode, onShowWizard, toggleFullscreen, toggleMode, updateSettings,
 } from './ipc-client';
 import { BackdropSchema, DisplayTopology, SettingsSchema } from './types/schema';
+import { StrokeElement } from './canvas/stroke';
 import { SetupWizard } from './wizard/setup-wizard';
 
 async function initApp() {
@@ -26,6 +27,8 @@ async function initApp() {
 
   let currentMode: 'wallpaper' | 'edit' = 'wallpaper';
   let settings: SettingsSchema;
+  let inkClipboard: StrokeElement[] = [];
+  let pasteOffsetCount = 0;
 
   const defaultBackdrop: BackdropSchema = {
     type: 'gradient',
@@ -66,10 +69,16 @@ async function initApp() {
   const gizmo = new TransformGizmo(gizmoLayer);
 
   let sceneGraph: SceneGraphManager;
+  let toolbarHUD: FloatingToolbarHUD;
 
   const inkEngine = new InkingEngine({
     canvas: inkCanvas,
-    onStrokeChange: () => sceneGraph?.markDirty(),
+    onStrokeChange: () => {
+      if (gizmo.isAttached() && !inkEngine.hasSelection() && !mediaManager.hasSelection()) {
+        gizmo.detach();
+      }
+      sceneGraph?.markDirty();
+    },
   });
 
   const mediaManager = new MediaManager({
@@ -93,7 +102,7 @@ async function initApp() {
 
   await sceneGraph.loadInitialState();
 
-  const toolbarHUD = new FloatingToolbarHUD({
+  toolbarHUD = new FloatingToolbarHUD({
     container: hudContainer,
     inkEngine,
     backdropRenderer,
@@ -144,6 +153,7 @@ async function initApp() {
       mediaManager.setEnabled(true);
       textNotesManager.setEnabled(true);
       toolbarHUD.show();
+      resizeAll();
     } else {
       modeDot.className = 'mode-dot';
       modeText.innerText = 'Wallpaper Mode';
@@ -166,6 +176,7 @@ async function initApp() {
       const nextMode = forceTarget || (currentMode === 'edit' ? 'wallpaper' : 'edit');
       if (nextMode === 'wallpaper') {
         try {
+          inkEngine.commitCurrentStroke();
           await sceneGraph.saveImmediately();
           let topology: DisplayTopology | null = null;
           try {
@@ -212,8 +223,10 @@ async function initApp() {
       return;
     }
 
-    let lastGizmoX = bbox.x;
-    let lastGizmoY = bbox.y;
+    let snapshotStrokes = inkEngine.cloneSelectedStrokes();
+    let initBbox = { ...bbox };
+    let rotCenterX = bbox.x + bbox.width / 2;
+    let rotCenterY = bbox.y + bbox.height / 2;
 
     gizmo.attach(
       {
@@ -224,22 +237,40 @@ async function initApp() {
         rotation: 0,
       },
       {
-        onTransformStart: () => {
+        onTransformStart: (_handle) => {
           inkEngine.saveUndoState();
           const curBbox = inkEngine.getBoundingBox();
           if (curBbox) {
-            lastGizmoX = curBbox.x;
-            lastGizmoY = curBbox.y;
+            initBbox = { ...curBbox };
+            rotCenterX = curBbox.x + curBbox.width / 2;
+            rotCenterY = curBbox.y + curBbox.height / 2;
           }
+          snapshotStrokes = inkEngine.cloneSelectedStrokes();
         },
-        onTransformChange: (t) => {
-          const dx = t.x - lastGizmoX;
-          const dy = t.y - lastGizmoY;
-          lastGizmoX = t.x;
-          lastGizmoY = t.y;
-          inkEngine.moveSelectedStrokes(dx, dy);
+        onTransformChange: (t, handle) => {
+          inkEngine.transformSelectedStrokes(
+            snapshotStrokes,
+            initBbox,
+            t,
+            handle,
+            { x: rotCenterX, y: rotCenterY }
+          );
         },
         onTransformEnd: () => {
+          const newBbox = inkEngine.getBoundingBox();
+          if (newBbox) {
+            initBbox = { ...newBbox };
+            rotCenterX = newBbox.x + newBbox.width / 2;
+            rotCenterY = newBbox.y + newBbox.height / 2;
+            gizmo.updateTransform({
+              x: newBbox.x,
+              y: newBbox.y,
+              width: newBbox.width,
+              height: newBbox.height,
+              rotation: 0,
+            });
+          }
+          inkEngine.notifyChange();
           sceneGraph.markDirty();
         },
         onDelete: () => {
@@ -248,17 +279,23 @@ async function initApp() {
           sceneGraph.markDirty();
         },
       },
-      false,
-      false,
-      false
+      false, // isAboveInk
+      false, // showLayerButtons
+      true,  // showTransformHandles
+      false  // showRotateOnly (false allows both corner/edge resize handles and top rotation pin)
     );
   };
 
   inkCanvas.addEventListener('pointerdown', (e: PointerEvent) => {
-    if (currentMode !== 'edit' || e.button !== 0) return;
+    if (currentMode !== 'edit') return;
+    if (inkEngine.isStylusEraser(e)) return;
+
+    const isSelectButton = inkEngine.isStylusSelect(e);
     const tool = inkEngine.getBrushSettings().tool;
 
-    if (tool !== 'select') {
+    const isSelectionAction = (tool === 'select' && e.button === 0) || isSelectButton;
+
+    if (!isSelectionAction) {
       if (gizmo.isAttached() || inkEngine.hasSelection()) {
         mediaManager.deselect();
         inkEngine.clearSelection();
@@ -360,13 +397,87 @@ async function initApp() {
     handleToggleMode();
   });
 
-  inkCanvas.addEventListener('dblclick', (e) => {
-    if (currentMode !== 'edit') return;
-    textNotesManager.createNoteAt(e.clientX - 100, e.clientY - 40);
-    sceneGraph.markDirty();
+  const fullscreenToggleBtn = document.getElementById('fullscreenToggleBtn');
+  const fsIconExpand = document.getElementById('fsIconExpand');
+  const fsIconCompress = document.getElementById('fsIconCompress');
+
+  const updateFullscreenIcons = (isFullscreen: boolean) => {
+    if (isFullscreen) {
+      fsIconExpand?.classList.add('hidden');
+      fsIconCompress?.classList.remove('hidden');
+    } else {
+      fsIconExpand?.classList.remove('hidden');
+      fsIconCompress?.classList.add('hidden');
+    }
+  };
+
+  fullscreenToggleBtn?.addEventListener('click', async () => {
+    try {
+      const isFs = await toggleFullscreen();
+      updateFullscreenIcons(isFs);
+      resizeAll();
+    } catch (err) {
+      console.warn('Toggle fullscreen failed:', err);
+    }
   });
 
-  window.addEventListener('keydown', (e) => {
+  const closeToWallpaperBtn = document.getElementById('closeToWallpaperBtn');
+  closeToWallpaperBtn?.addEventListener('click', () => {
+    handleToggleMode('wallpaper');
+  });
+
+  let clickCount = 0;
+  let lastClickX = 0;
+  let lastClickY = 0;
+  let tripleClickTimer: number | null = null;
+
+  inkCanvas.addEventListener('click', (e) => {
+    if (currentMode !== 'edit' || e.button !== 0) return;
+
+    if (e.detail === 3) {
+      textNotesManager.createNoteAt(e.clientX - 100, e.clientY - 40);
+      sceneGraph.markDirty();
+      clickCount = 0;
+      return;
+    }
+
+    const dist = Math.hypot(e.clientX - lastClickX, e.clientY - lastClickY);
+    lastClickX = e.clientX;
+    lastClickY = e.clientY;
+
+    if (dist < 25) {
+      clickCount++;
+      if (clickCount === 3) {
+        textNotesManager.createNoteAt(e.clientX - 100, e.clientY - 40);
+        sceneGraph.markDirty();
+        clickCount = 0;
+        if (tripleClickTimer) clearTimeout(tripleClickTimer);
+        return;
+      }
+    } else {
+      clickCount = 1;
+    }
+
+    if (tripleClickTimer) clearTimeout(tripleClickTimer);
+    tripleClickTimer = window.setTimeout(() => {
+      clickCount = 0;
+    }, 450);
+  });
+
+  const isTypingActive = (): boolean => {
+    const activeEl = document.activeElement as HTMLElement | null;
+    return !!(
+      activeEl &&
+      (activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.classList.contains('note-content') ||
+        activeEl.getAttribute('contenteditable') === 'true')
+    );
+  };
+
+  window.addEventListener('keydown', async (e) => {
+    const isTyping = isTypingActive();
+
     if (e.key === 'Escape') {
       if (gizmo.isAttached() || inkEngine.hasSelection()) {
         gizmo.detach();
@@ -386,6 +497,16 @@ async function initApp() {
     if (e.key === 'F8') {
       e.preventDefault();
       handleToggleMode();
+    }
+    if (e.key === 'F11') {
+      e.preventDefault();
+      try {
+        const isFs = await toggleFullscreen();
+        updateFullscreenIcons(isFs);
+        resizeAll();
+      } catch (err) {
+        console.warn('Toggle fullscreen failed:', err);
+      }
     }
     if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
       if (gizmo.isAttached() || inkEngine.hasSelection()) {
@@ -410,13 +531,6 @@ async function initApp() {
       sceneGraph.markDirty();
     }
     if (e.key === 'Delete') {
-      const activeEl = document.activeElement as HTMLElement | null;
-      const isTyping = activeEl && (
-        activeEl.tagName === 'INPUT' ||
-        activeEl.tagName === 'TEXTAREA' ||
-        activeEl.classList.contains('note-content') ||
-        activeEl.getAttribute('contenteditable') === 'true'
-      );
       if (!isTyping && gizmo.isAttached()) {
         if (inkEngine.hasSelection()) {
           inkEngine.deleteSelectedStrokes();
@@ -428,7 +542,97 @@ async function initApp() {
         }
       }
     }
+    // Copy selected ink
+    if (!isTyping && e.ctrlKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+      if (inkEngine.hasSelection()) {
+        e.preventDefault();
+        inkClipboard = inkEngine.cloneSelectedStrokes();
+        pasteOffsetCount = 0;
+        try {
+          const payload = JSON.stringify({
+            type: 'desktop-canvas-ink',
+            version: 1,
+            strokes: inkClipboard,
+          });
+          navigator.clipboard.writeText(payload);
+        } catch {}
+      }
+    }
+
+    // Cut selected ink
+    if (!isTyping && e.ctrlKey && !e.altKey && (e.key === 'x' || e.key === 'X')) {
+      if (inkEngine.hasSelection()) {
+        e.preventDefault();
+        inkClipboard = inkEngine.cloneSelectedStrokes();
+        pasteOffsetCount = 0;
+        try {
+          const payload = JSON.stringify({
+            type: 'desktop-canvas-ink',
+            version: 1,
+            strokes: inkClipboard,
+          });
+          navigator.clipboard.writeText(payload);
+        } catch {}
+        inkEngine.deleteSelectedStrokes();
+        gizmo.detach();
+        sceneGraph.markDirty();
+      }
+    }
+
+    // Paste copied ink
+    if (!isTyping && e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+      if (inkClipboard.length > 0) {
+        e.preventDefault();
+        pasteOffsetCount += 1;
+        const offset = { x: 24 * pasteOffsetCount, y: 24 * pasteOffsetCount };
+        const pastedStrokes = inkEngine.pasteStrokes(inkClipboard, offset);
+        if (pastedStrokes.length > 0) {
+          mediaManager.deselect();
+          selectInkStrokes(pastedStrokes.map((s) => s.id));
+          sceneGraph.markDirty();
+        }
+      }
+    }
+
+    if (!isTyping && currentMode === 'edit' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'e') {
+        const curTool = inkEngine.getBrushSettings().tool;
+        const nextTool = curTool === 'eraser' ? 'pen' : 'eraser';
+        toolbarHUD.selectTool(nextTool);
+      } else if (k === 'p' || k === 'b') {
+        toolbarHUD.selectTool('pen');
+      } else if (k === 'h') {
+        toolbarHUD.selectTool('highlighter');
+      } else if (k === 's' || k === 'v') {
+        toolbarHUD.selectTool('select');
+      }
+    }
   });
+
+  window.addEventListener('paste', async (e: ClipboardEvent) => {
+    if (isTypingActive()) return;
+    const text = e.clipboardData?.getData('text');
+    if (text && text.includes('desktop-canvas-ink')) {
+      try {
+        const data = JSON.parse(text);
+        if (data && data.type === 'desktop-canvas-ink' && Array.isArray(data.strokes)) {
+          e.preventDefault();
+          e.stopPropagation();
+          pasteOffsetCount += 1;
+          const offset = { x: 24 * pasteOffsetCount, y: 24 * pasteOffsetCount };
+          const pastedStrokes = inkEngine.pasteStrokes(data.strokes, offset);
+          if (pastedStrokes.length > 0) {
+            mediaManager.deselect();
+            selectInkStrokes(pastedStrokes.map((s) => s.id));
+            sceneGraph.markDirty();
+          }
+        }
+      } catch {}
+    }
+  });
+
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
 
   const resizeAll = () => {
     const w = window.innerWidth;

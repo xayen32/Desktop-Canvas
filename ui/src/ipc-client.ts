@@ -22,6 +22,10 @@ export async function toggleMode(target?: 'wallpaper' | 'edit' | 'auto'): Promis
   return await invoke<{ ok: boolean; mode: string }>('toggle_mode', { target });
 }
 
+export async function toggleFullscreen(): Promise<boolean> {
+  return await invoke<boolean>('toggle_fullscreen');
+}
+
 export async function getDisplayBounds(): Promise<DisplayTopology> {
   return await invoke<DisplayTopology>('get_display_bounds');
 }

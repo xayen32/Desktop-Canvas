@@ -16,6 +16,7 @@ dist/
 
 # Local & private development files
 .local/
+docs/
 private/
 *.local
 

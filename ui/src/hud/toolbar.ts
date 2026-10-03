@@ -17,7 +17,7 @@ export interface FloatingToolbarOptions {
   onToolChange?: (tool: ToolType) => void;
 }
 
-export const PRESET_COLORS = [
+export const PEN_PRESET_COLORS = [
   '#F5F5F7',
   '#5B8CFF',
   '#34D399',
@@ -27,6 +27,19 @@ export const PRESET_COLORS = [
   '#F472B6',
   '#94A3B8',
 ];
+
+export const HIGHLIGHTER_PRESET_COLORS = [
+  '#FFE600',
+  '#4ADE80',
+  '#38BDF8',
+  '#F472B6',
+  '#FB923C',
+  '#C084FC',
+  '#FBBF24',
+  '#A7F3D0',
+];
+
+export const PRESET_COLORS = PEN_PRESET_COLORS;
 
 export class FloatingToolbarHUD {
   private container: HTMLElement;
@@ -90,7 +103,7 @@ export class FloatingToolbarHUD {
           <span class="tool-label">Select</span>
         </button>
 
-        <div class="hud-tool-combo ${this.activeTool === 'pen' ? 'active' : ''}">
+        <div class="hud-tool-combo ${this.activeTool === 'pen' ? 'active' : ''}" data-tool="pen">
           <button class="hud-tool-btn ${this.activeTool === 'pen' ? 'active' : ''}" data-tool="pen" title="Pen (Smooth Bézier)">
             <span class="tool-icon">✎</span>
             <span class="tool-label">Pen</span>
@@ -98,7 +111,7 @@ export class FloatingToolbarHUD {
           <button class="hud-chevron-btn" id="penOptionsBtn" title="Brush Settings">▾</button>
         </div>
 
-        <div class="hud-tool-combo ${this.activeTool === 'highlighter' ? 'active' : ''}">
+        <div class="hud-tool-combo ${this.activeTool === 'highlighter' ? 'active' : ''}" data-tool="highlighter">
           <button class="hud-tool-btn ${this.activeTool === 'highlighter' ? 'active' : ''}" data-tool="highlighter" title="Highlighter (Multiply Blend)">
             <span class="tool-icon">▮</span>
             <span class="tool-label">Highlight</span>
@@ -156,10 +169,14 @@ export class FloatingToolbarHUD {
   }
 
   private bindEvents(): void {
-    this.hudElement.querySelectorAll('[data-tool]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const tool = (e.currentTarget as HTMLElement).dataset.tool as ToolType;
-        this.selectTool(tool);
+    this.hudElement.querySelectorAll('[data-tool]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('.hud-chevron-btn')) return;
+        const tool = (el as HTMLElement).dataset.tool as ToolType;
+        if (tool) {
+          this.selectTool(tool);
+        }
       });
     });
 
@@ -221,6 +238,10 @@ export class FloatingToolbarHUD {
   }
 
   public selectTool(tool: ToolType): void {
+    if (this.activeTool !== tool && this.activePopover) {
+      this.activePopover.close();
+      this.activePopover = null;
+    }
     this.activeTool = tool;
     this.inkEngine.setTool(tool);
     this.updateActiveToolUI();
@@ -238,8 +259,7 @@ export class FloatingToolbarHUD {
 
     const combos = this.hudElement.querySelectorAll<HTMLElement>('.hud-tool-combo');
     combos.forEach((combo) => {
-      const childBtn = combo.querySelector<HTMLElement>('.hud-tool-btn[data-tool]');
-      const isCurrent = childBtn ? childBtn.dataset.tool === this.activeTool : false;
+      const isCurrent = combo.dataset.tool === this.activeTool;
       combo.classList.toggle('active', isCurrent);
     });
   }
@@ -250,15 +270,19 @@ export class FloatingToolbarHUD {
       this.activePopover = null;
     }
 
+    const isHighlighter = this.activeTool === 'highlighter';
     const settings = this.inkEngine.getBrushSettings();
+    const presets = isHighlighter ? HIGHLIGHTER_PRESET_COLORS : PEN_PRESET_COLORS;
+    const title = isHighlighter ? 'Highlighter Color' : 'Pen Color';
+    const widthLabel = isHighlighter ? 'Highlighter Width' : 'Stroke Width';
     const content = document.createElement('div');
     content.className = 'brush-popover-content';
 
     content.innerHTML = `
       <div class="popover-section">
-        <div class="popover-label">Color Palette</div>
+        <div class="popover-label">${title}</div>
         <div class="swatches-grid">
-          ${PRESET_COLORS.map(
+          ${presets.map(
             (c) => `
             <button class="color-swatch ${settings.color.toLowerCase() === c.toLowerCase() ? 'active' : ''}" 
                     data-color="${c}" 
@@ -274,12 +298,12 @@ export class FloatingToolbarHUD {
 
       <div class="popover-section">
         <div class="slider-header">
-          <span class="popover-label">Stroke Width</span>
+          <span class="popover-label">${widthLabel}</span>
           <span class="slider-val" id="widthValDisplay">${settings.width}px</span>
         </div>
         <div class="slider-row">
           <input type="range" id="widthSlider" min="1" max="64" value="${settings.width}" />
-          <div class="width-preview-dot" id="widthPreviewDot" style="width: ${Math.min(24, Math.max(4, settings.width))}px; height: ${Math.min(24, Math.max(4, settings.width))}px; background-color: ${settings.color};"></div>
+          <div class="width-preview-dot" id="widthPreviewDot" style="width: ${Math.min(24, Math.max(4, settings.width))}px; height: ${Math.min(24, Math.max(4, settings.width))}px; background-color: ${settings.color}; opacity: ${settings.opacity};"></div>
         </div>
       </div>
 
@@ -294,7 +318,7 @@ export class FloatingToolbarHUD {
 
     content.querySelectorAll('[data-color]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const color = (btn as HTMLElement).dataset.color || '#F5F5F7';
+        const color = (btn as HTMLElement).dataset.color || (isHighlighter ? '#FFE600' : '#F5F5F7');
         this.inkEngine.setColor(color);
         this.openBrushPopover(anchorEl);
       });
@@ -332,6 +356,8 @@ export class FloatingToolbarHUD {
         const val = parseInt((e.target as HTMLInputElement).value, 10);
         this.inkEngine.setOpacity(val / 100);
         opacityValDisplay.innerText = `${val}%`;
+        const preview = content.querySelector('#widthPreviewDot') as HTMLElement;
+        if (preview) preview.style.opacity = `${val / 100}`;
       });
     }
 

@@ -10,6 +10,7 @@ import {
 import { BackdropRenderer } from './backdrop';
 import { InkingEngine } from './ink-engine';
 import { MediaManager } from './media-manager';
+import { computeStrokeOutline, renderOutlineOnCanvas } from './stroke';
 import { FloatingTextNotesManager } from './text-notes';
 
 export interface SceneGraphOptions {
@@ -133,46 +134,58 @@ export class SceneGraphManager {
 
     this.backdropRenderer.renderTo(ctx, width, height);
 
-    const mediaCanvas = document.getElementById('mediaCanvas') as HTMLCanvasElement;
-    if (mediaCanvas && mediaCanvas.width > 0 && mediaCanvas.height > 0) {
-      ctx.drawImage(mediaCanvas, 0, 0, width, height);
-    } else {
-      const images = this.mediaManager.getImages().filter((i) => !i.aboveInk);
-      for (const imgEl of images) {
-        const imgSource = (imgEl as any).imgElement as HTMLImageElement | undefined;
-        if (imgSource && imgSource.complete && imgSource.naturalWidth > 0) {
-          ctx.save();
-          const cx = imgEl.transform.x + imgEl.transform.width / 2;
-          const cy = imgEl.transform.y + imgEl.transform.height / 2;
-          ctx.translate(cx, cy);
-          ctx.rotate((imgEl.transform.rotation * Math.PI) / 180);
-          ctx.drawImage(imgSource, -imgEl.transform.width / 2, -imgEl.transform.height / 2, imgEl.transform.width, imgEl.transform.height);
-          ctx.restore();
-        }
+    // Ensure any stroke in progress is committed before capturing snapshot
+    this.inkEngine.commitCurrentStroke();
+
+    // 1. Render images below ink at 1:1 scale
+    const imagesBelow = this.mediaManager.getImages().filter((i) => !i.aboveInk);
+    for (const imgEl of imagesBelow) {
+      const imgSource = (imgEl as any).imgElement as HTMLImageElement | undefined;
+      if (imgSource && imgSource.complete && imgSource.naturalWidth > 0) {
+        ctx.save();
+        const cx = imgEl.transform.x + imgEl.transform.width / 2;
+        const cy = imgEl.transform.y + imgEl.transform.height / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate((imgEl.transform.rotation * Math.PI) / 180);
+        ctx.drawImage(imgSource, -imgEl.transform.width / 2, -imgEl.transform.height / 2, imgEl.transform.width, imgEl.transform.height);
+        ctx.restore();
       }
     }
 
-    const inkCanvas = document.getElementById('inkCanvas') as HTMLCanvasElement;
-    if (inkCanvas) {
-      ctx.drawImage(inkCanvas, 0, 0, width, height);
+    // 2. Render ink vector strokes at 1:1 scale (no bitmap stretching)
+    const strokes = this.inkEngine.getStrokes();
+    for (const stroke of strokes) {
+      if (stroke.points.length === 0) continue;
+      ctx.save();
+      ctx.globalCompositeOperation = stroke.blendMode === 'multiply' ? 'multiply' : 'source-over';
+      ctx.globalAlpha = stroke.opacity;
+      ctx.fillStyle = stroke.color;
+
+      if (stroke.points.length === 1) {
+        const p = stroke.points[0];
+        const r = Math.max(stroke.width / 2, 1.5);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const outline = computeStrokeOutline(stroke.points, stroke.width, stroke.tool);
+        renderOutlineOnCanvas(ctx, outline);
+      }
+      ctx.restore();
     }
 
-    const mediaCanvasAbove = document.getElementById('mediaCanvasAbove') as HTMLCanvasElement;
-    if (mediaCanvasAbove && mediaCanvasAbove.width > 0 && mediaCanvasAbove.height > 0) {
-      ctx.drawImage(mediaCanvasAbove, 0, 0, width, height);
-    } else {
-      const imagesAbove = this.mediaManager.getImages().filter((i) => i.aboveInk);
-      for (const imgEl of imagesAbove) {
-        const imgSource = (imgEl as any).imgElement as HTMLImageElement | undefined;
-        if (imgSource && imgSource.complete && imgSource.naturalWidth > 0) {
-          ctx.save();
-          const cx = imgEl.transform.x + imgEl.transform.width / 2;
-          const cy = imgEl.transform.y + imgEl.transform.height / 2;
-          ctx.translate(cx, cy);
-          ctx.rotate((imgEl.transform.rotation * Math.PI) / 180);
-          ctx.drawImage(imgSource, -imgEl.transform.width / 2, -imgEl.transform.height / 2, imgEl.transform.width, imgEl.transform.height);
-          ctx.restore();
-        }
+    // 3. Render images above ink at 1:1 scale
+    const imagesAbove = this.mediaManager.getImages().filter((i) => i.aboveInk);
+    for (const imgEl of imagesAbove) {
+      const imgSource = (imgEl as any).imgElement as HTMLImageElement | undefined;
+      if (imgSource && imgSource.complete && imgSource.naturalWidth > 0) {
+        ctx.save();
+        const cx = imgEl.transform.x + imgEl.transform.width / 2;
+        const cy = imgEl.transform.y + imgEl.transform.height / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate((imgEl.transform.rotation * Math.PI) / 180);
+        ctx.drawImage(imgSource, -imgEl.transform.width / 2, -imgEl.transform.height / 2, imgEl.transform.width, imgEl.transform.height);
+        ctx.restore();
       }
     }
 
@@ -283,7 +296,7 @@ export class SceneGraphManager {
       let lineY = y + paddingTop;
       const lineHeight = fontSize * 1.45;
       for (const line of lines) {
-        if (lineY + lineHeight > y + nh - 6) break;
+        if (lineY > y + nh - 4) break;
         ctx.fillText(line, x + paddingX, lineY);
         lineY += lineHeight;
       }

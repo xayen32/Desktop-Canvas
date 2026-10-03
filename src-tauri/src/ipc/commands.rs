@@ -7,7 +7,7 @@ use crate::state::{
 };
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -88,10 +88,16 @@ pub fn apply_wallpaper_snapshot(base64_png: String) -> Result<OkResponse, String
     let app_data = dirs::data_dir().ok_or("Failed to locate %APPDATA%")?;
     let target_dir = app_data.join("DesktopCanvas");
     std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
-    let target_path = target_dir.join("wallpaper.png");
 
-    std::fs::write(&target_path, bytes)
+    static SNAPSHOT_INDEX: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+    let idx = SNAPSHOT_INDEX.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 2;
+    let target_path = target_dir.join(format!("wallpaper_{}.png", idx));
+
+    std::fs::write(&target_path, &bytes)
         .map_err(|e| format!("Failed to write wallpaper image: {}", e))?;
+
+    // Also persist static wallpaper.png for backwards compatibility
+    let _ = std::fs::write(target_dir.join("wallpaper.png"), &bytes);
 
     #[cfg(windows)]
     unsafe {
@@ -116,8 +122,6 @@ pub fn apply_wallpaper_snapshot(base64_png: String) -> Result<OkResponse, String
 }
 
 pub fn toggle_mode_internal(app: &AppHandle, target: Option<&str>) -> Result<ModeResponse, String> {
-    use tauri::Manager;
-
     let state = app.state::<AppState>();
     let mut sm = state.state_machine.lock().map_err(|e| e.to_string())?;
 
@@ -159,6 +163,7 @@ pub fn toggle_mode_internal(app: &AppHandle, target: Option<&str>) -> Result<Mod
             let _ = window.hide();
             trim_working_set_memory();
         } else {
+            let _ = window.set_fullscreen(true);
             let _ = window.show();
             if window.is_minimized().unwrap_or(false) {
                 let _ = window.unminimize();
@@ -170,8 +175,7 @@ pub fn toggle_mode_internal(app: &AppHandle, target: Option<&str>) -> Result<Mod
                     use windows::Win32::Foundation::HWND;
                     use windows::Win32::UI::WindowsAndMessaging::{
                         BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
-                        IsIconic, IsZoomed, SetForegroundWindow, ShowWindow, SW_MAXIMIZE,
-                        SW_RESTORE, SW_SHOW,
+                        SetForegroundWindow, ShowWindow, SW_SHOW,
                     };
                     use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 
@@ -180,27 +184,14 @@ pub fn toggle_mode_internal(app: &AppHandle, target: Option<&str>) -> Result<Mod
                     let foreground_tid = GetWindowThreadProcessId(foreground_hwnd, None);
                     let current_tid = GetCurrentThreadId();
 
-                    let is_iconic = IsIconic(win_hwnd).as_bool();
-                    let is_zoomed = IsZoomed(win_hwnd).as_bool();
-
-                    let show_cmd = if is_iconic {
-                        if is_zoomed {
-                            SW_MAXIMIZE
-                        } else {
-                            SW_RESTORE
-                        }
-                    } else {
-                        SW_SHOW
-                    };
-
                     if foreground_tid != 0 && foreground_tid != current_tid {
                         let _ = AttachThreadInput(current_tid, foreground_tid, true);
-                        let _ = ShowWindow(win_hwnd, show_cmd);
+                        let _ = ShowWindow(win_hwnd, SW_SHOW);
                         let _ = BringWindowToTop(win_hwnd);
                         let _ = SetForegroundWindow(win_hwnd);
                         let _ = AttachThreadInput(current_tid, foreground_tid, false);
                     } else {
-                        let _ = ShowWindow(win_hwnd, show_cmd);
+                        let _ = ShowWindow(win_hwnd, SW_SHOW);
                         let _ = BringWindowToTop(win_hwnd);
                         let _ = SetForegroundWindow(win_hwnd);
                     }
@@ -216,7 +207,8 @@ pub fn toggle_mode_internal(app: &AppHandle, target: Option<&str>) -> Result<Mod
                 tauri::WebviewUrl::App("index.html".into()),
             )
             .title("Desktop Canvas")
-            .maximized(true)
+            .decorations(false)
+            .fullscreen(true)
             .visible(true);
             let _ = builder.build();
         }
@@ -277,4 +269,17 @@ pub fn save_canvas(state: CanvasStateSchema) -> Result<CanvasSavedResponse, Stri
 pub fn load_canvas() -> Result<CanvasLoadedResponse, String> {
     let state = load_canvas_state();
     Ok(CanvasLoadedResponse { state })
+}
+
+#[tauri::command]
+pub fn toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let is_fs = window.is_fullscreen().unwrap_or(false);
+        let next_fs = !is_fs;
+        let _ = window.set_fullscreen(next_fs);
+        info!("Toggled fullscreen state to: {}", next_fs);
+        Ok(next_fs)
+    } else {
+        Err("Main window not found".to_string())
+    }
 }

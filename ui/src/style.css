@@ -761,6 +761,7 @@ html, body, #app {
   pointer-events: auto;
   z-index: 50;
   cursor: move;
+  touch-action: none;
 }
 
 .transform-gizmo.hidden {
@@ -774,6 +775,7 @@ html, body, #app {
   background: rgba(91, 140, 255, 0.05);
   cursor: move;
   pointer-events: auto;
+  touch-action: none;
 }
 
 .gizmo-body {
@@ -782,6 +784,7 @@ html, body, #app {
   cursor: move;
   background: transparent;
   pointer-events: auto;
+  touch-action: none;
 }
 
 .gizmo-rot-stem {
@@ -801,6 +804,20 @@ html, body, #app {
   background: #FFFFFF;
   border: 1.5px solid var(--accent-primary);
   border-radius: 2px;
+  box-sizing: border-box;
+  touch-action: none;
+  transition: transform 0.1s ease;
+}
+
+.gizmo-handle::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.gizmo-handle:not(.handle-rot):hover {
+  transform: scale(1.25);
+  background: var(--accent-primary);
 }
 
 .handle-rot {
@@ -811,6 +828,10 @@ html, body, #app {
   cursor: grab;
   background: var(--accent-primary);
   border-color: #FFFFFF;
+}
+
+.handle-rot:hover {
+  transform: translateX(-50%) scale(1.25);
 }
 
 .handle-nw { top: -5px; left: -5px; cursor: nwse-resize; }
@@ -1065,11 +1086,18 @@ html, body, #app {
   color: var(--accent-primary);
 }
 
-/* Mode Indicator */
-#modeIndicator {
+/* Top Bar Controls */
+#topBarControls {
   position: absolute;
   top: 16px;
   right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 20;
+}
+
+#modeIndicator {
   background: var(--surface-base);
   border: 1px solid var(--border-subtle);
   border-radius: 9999px;
@@ -1079,14 +1107,45 @@ html, body, #app {
   align-items: center;
   gap: 8px;
   backdrop-filter: blur(12px);
-  z-index: 20;
   box-shadow: var(--shadow-float);
   cursor: pointer;
   transition: all 0.15s ease;
+  user-select: none;
 }
 
 #modeIndicator:hover {
   border-color: var(--accent-primary);
+}
+
+.top-bar-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-float);
+  transition: all 0.15s ease;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.top-bar-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+  transform: scale(1.08);
+}
+
+.top-bar-btn.close-btn:hover {
+  border-color: #EF4444;
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .mode-dot {

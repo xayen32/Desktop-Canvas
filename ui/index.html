@@ -15,9 +15,20 @@
       
       <div id="hudContainer"></div>
 
-      <div id="modeIndicator" title="Click to toggle Edit / Wallpaper Mode">
-        <span class="mode-dot" id="modeDot"></span>
-        <span id="modeText">Wallpaper Mode</span>
+      <div id="topBarControls">
+        <div id="modeIndicator" title="Click to toggle Edit / Wallpaper Mode (F8)">
+          <span class="mode-dot" id="modeDot"></span>
+          <span id="modeText">Wallpaper Mode</span>
+        </div>
+        <button id="fullscreenToggleBtn" class="top-bar-btn" title="Toggle Fullscreen (F11)">
+          <svg id="fsIconExpand" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+          <svg id="fsIconCompress" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+          </svg>
+        </button>
+        <button id="closeToWallpaperBtn" class="top-bar-btn close-btn" title="Switch to Wallpaper Mode (F8)">✕</button>
       </div>
 
       <div id="wizardContainer" class="hidden"></div>

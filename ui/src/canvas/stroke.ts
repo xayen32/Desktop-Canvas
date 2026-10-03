@@ -40,16 +40,16 @@ export function computeStrokeOutline(
   const isHighlighter = tool === 'highlighter';
   const strokeOptions = {
     size: width * (isHighlighter ? 1.8 : 1.0),
-    thinning: isHighlighter ? 0.0 : 0.5,
-    smoothing: 0.65,
-    streamline: 0.55,
+    thinning: isHighlighter ? 0.0 : 0.08,
+    smoothing: 0.45,
+    streamline: 0.22,
     easing: (t: number) => t,
     start: {
-      taper: isHighlighter ? 0 : Math.min(width * 0.5, 8),
+      taper: 0,
       cap: true,
     },
     end: {
-      taper: isHighlighter ? 0 : Math.min(width * 0.5, 8),
+      taper: 0,
       cap: true,
     },
   };
@@ -65,7 +65,13 @@ export function renderOutlineOnCanvas(
   ctx: CanvasRenderingContext2D,
   outline: number[][]
 ): void {
-  if (outline.length < 3) return;
+  if (outline.length === 0) return;
+  if (outline.length < 3) {
+    ctx.beginPath();
+    ctx.arc(outline[0][0], outline[0][1], 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
 
   ctx.beginPath();
   ctx.moveTo(outline[0][0], outline[0][1]);

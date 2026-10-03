@@ -261,6 +261,10 @@ export class MediaManager {
     this.notify();
   }
 
+  public hasSelection(): boolean {
+    return this.selectedImageId !== null;
+  }
+
   public deselect(): void {
     this.selectedImageId = null;
     this.gizmo.detach();

@@ -8,7 +8,7 @@ mod tray;
 use desktop_integration::register_taskbar_created_msg;
 use ipc::commands::{
     apply_wallpaper_snapshot, get_display_bounds, get_settings, import_image, load_canvas,
-    save_canvas, set_wallpaper_backend, toggle_mode, update_settings,
+    save_canvas, set_wallpaper_backend, toggle_fullscreen, toggle_mode, update_settings,
 };
 use state::{load_settings, AppState};
 use std::path::PathBuf;
@@ -128,6 +128,7 @@ fn main() {
             set_wallpaper_backend,
             apply_wallpaper_snapshot,
             toggle_mode,
+            toggle_fullscreen,
             get_display_bounds,
             import_image,
             save_canvas,
@@ -209,8 +210,10 @@ fn main() {
             let main_window = app.get_webview_window("main");
             info!("app.get_webview_window('main') result: {:?}", main_window.is_some());
             if let Some(window) = main_window {
+                let _ = window.set_fullscreen(true);
                 let show_res = window.show();
                 info!("window.show() result: {:?}", show_res);
+                info!("window.url(): {:?}", window.url());
                 if window.is_minimized().unwrap_or(false) {
                     let _ = window.unminimize();
                 }
@@ -221,8 +224,7 @@ fn main() {
                         use windows::Win32::Foundation::HWND;
                         use windows::Win32::UI::WindowsAndMessaging::{
                             BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
-                            IsIconic, IsZoomed, SetForegroundWindow, ShowWindow, SW_MAXIMIZE,
-                            SW_RESTORE, SW_SHOW,
+                            SetForegroundWindow, ShowWindow, SW_SHOW,
                         };
                         use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 
@@ -231,33 +233,20 @@ fn main() {
                         let foreground_tid = GetWindowThreadProcessId(foreground_hwnd, None);
                         let current_tid = GetCurrentThreadId();
 
-                        let is_iconic = IsIconic(win_hwnd).as_bool();
-                        let is_zoomed = IsZoomed(win_hwnd).as_bool();
-
-                        let show_cmd = if is_iconic {
-                            if is_zoomed {
-                                SW_MAXIMIZE
-                            } else {
-                                SW_RESTORE
-                            }
-                        } else {
-                            SW_SHOW
-                        };
-
                         if foreground_tid != 0 && foreground_tid != current_tid {
                             let _ = AttachThreadInput(current_tid, foreground_tid, true);
-                            let _ = ShowWindow(win_hwnd, show_cmd);
+                            let _ = ShowWindow(win_hwnd, SW_SHOW);
                             let _ = BringWindowToTop(win_hwnd);
                             let _ = SetForegroundWindow(win_hwnd);
                             let _ = AttachThreadInput(current_tid, foreground_tid, false);
                         } else {
-                            let _ = ShowWindow(win_hwnd, show_cmd);
+                            let _ = ShowWindow(win_hwnd, SW_SHOW);
                             let _ = BringWindowToTop(win_hwnd);
                             let _ = SetForegroundWindow(win_hwnd);
                         }
                     }
                 }
-                info!("Desktop Canvas main studio window displayed and focused successfully.");
+                info!("Desktop Canvas main studio window displayed in complete fullscreen and focused successfully.");
             } else {
                 error!("CRITICAL: get_webview_window('main') returned None!");
             }
